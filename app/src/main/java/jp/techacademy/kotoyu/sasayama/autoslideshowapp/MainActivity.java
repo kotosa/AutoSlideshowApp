@@ -97,6 +97,7 @@ public class MainActivity extends AppCompatActivity {
                                         null // ソート (null ソートなし)
                                 );
 
+                                mCursor.moveToFirst();
                                 mCursor.move(m_iOffset);
 
                                 mHandler.post(new Runnable() {
@@ -140,12 +141,10 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 if (mTimer == null) {
-                    if (mCursor.moveToPrevious()) {
-                        m_iOffset--;
-                    } else {
+                    if (!mCursor.moveToPrevious()) {
                         mCursor.moveToLast();
-                        m_iOffset = mCursor.getColumnCount() - 1;
                     }
+                    m_iOffset = mCursor.getPosition();
                     getContentsInfo(m_iOffset);
                 }
             }
@@ -161,6 +160,7 @@ public class MainActivity extends AppCompatActivity {
                         mCursor.moveToFirst();
                         m_iOffset = 0;
                     }
+                    m_iOffset = mCursor.getPosition();
                     getContentsInfo(m_iOffset);
                 }
             }
@@ -192,10 +192,7 @@ public class MainActivity extends AppCompatActivity {
                 null // ソート (null ソートなし)
         );
 
-        if(liOffset == 0)
-        {
             mCursor.moveToFirst();
-        }
 
         if (mCursor.move(liOffset)) {
             int fieldIndex = mCursor.getColumnIndex(MediaStore.Images.Media._ID);
