@@ -26,9 +26,6 @@ public class MainActivity extends AppCompatActivity {
     Timer mTimer;
     TextView mTimerText;
 
-    // タイマー用の時間のための変数
-    double mTimerSec = 0.0;
-
     Handler mHandler = new Handler();
 
     Button mStartButton;
@@ -36,10 +33,9 @@ public class MainActivity extends AppCompatActivity {
     Button mNextButton;
 
     Cursor mCursor;
-    int mColumnMaxNum;
-    int m_CurrentID;
 
-    boolean mbStartFlag = true;    //再生ボタン表示中：TRUE、停止ボタン表示中：FALSE
+    int m_iOffset = 0;  //初期位置からのオフセット
+
     ImageView mImageVIew;
     ContentResolver mResolver;
 
@@ -48,21 +44,22 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        m_iOffset = 0;
+
         // Android 6.0以降の場合
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             // パーミッションの許可状態を確認する
             if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
                 // 許可されている
-                getContentsInfo();
+                getContentsInfo(m_iOffset);
             } else {
                 // 許可されていないので許可ダイアログを表示する
                 requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, PERMISSIONS_REQUEST_CODE);
             }
             // Android 5系以下の場合
         } else {
-            getContentsInfo();
+            getContentsInfo(m_iOffset);
         }
-
 
         mStartButton = (Button) findViewById(R.id.start_button);
         mBackButton = (Button) findViewById(R.id.back_button);
@@ -72,50 +69,99 @@ public class MainActivity extends AppCompatActivity {
         mStartButton.setOnClickListener(new View.OnClickListener(){
             @Override
             public void onClick(View v){
-                if(mTimer == null) {
-                    // タイマーの作成
-                    mTimer = new Timer();
-                    // タイマーの始動
-                    mTimer.schedule(new TimerTask() {
-                        @Override
-                        public void run() {
 
+                    if (mTimer == null) {
+                        // タイマーの作成
+                        mTimer = new Timer();
+
+                        if (mCursor.moveToFirst()) {
                             int fieldIndex = mCursor.getColumnIndex(MediaStore.Images.Media._ID);
                             Long id = mCursor.getLong(fieldIndex);
                             Uri imageUri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id);
 
+                            mImageVIew = (ImageView) findViewById(R.id.imageView);
                             mImageVIew.setImageURI(imageUri);
-                            if(!mCursor.moveToNext()) {
-                                mCursor.moveToFirst();
-                            }
-
-                            mHandler.post(new Runnable() {
-                                @Override
-                                public void run() {
-                                    setContentView(mStartButton);
-                                }
-                            });
                         }
 
-                    }, 100, 2000);    // 最初に始動させるまで 100ミリ秒、ループの間隔を 100ミリ秒 に設定
-                }
+                        // タイマーの始動
+                        mTimer.schedule(new TimerTask() {
+                            @Override
+                            public void run() {
+                                // 画像の情報を取得する
+                                mResolver = getContentResolver();
+                                mCursor = mResolver.query(
+                                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI, // データの種類
+                                        null, // 項目(null = 全項目)
+                                        null, // フィルタ条件(null = フィルタなし)
+                                        null, // フィルタ用パラメータ
+                                        null // ソート (null ソートなし)
+                                );
+
+                                mCursor.move(m_iOffset);
+
+                                mHandler.post(new Runnable() {
+                                    @Override
+                                    public void run() {
+                                        if (mCursor.moveToNext()) {
+                                            m_iOffset++;
+                                        } else {
+                                            mCursor.moveToFirst();
+                                            m_iOffset = 0;
+                                        }
+
+                                        int fieldIndex = mCursor.getColumnIndex(MediaStore.Images.Media._ID);
+                                        Long id = mCursor.getLong(fieldIndex);
+                                        Uri imageUri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id);
+
+                                        mImageVIew = (ImageView) findViewById(R.id.imageView);
+                                        mImageVIew.setImageURI(imageUri);
+
+                                        mStartButton.setText("停止");
+                                        mBackButton.setText("戻る(操作不可)");
+                                        mNextButton.setText("進む(操作不可)");
+                                    }
+                                });
+                            }
+
+                        }, 100, 2000);    // 最初に始動させるまで 100ミリ秒、ループの間隔を 100ミリ秒 に設定
+                    }
+                    else {
+                        mTimer.cancel();
+                        mTimer = null;
+                        mStartButton.setText("再生");
+                        mBackButton.setText("戻る");
+                        mNextButton.setText("進む");
+                    }
+
             }
         });
 
         mBackButton.setOnClickListener(new View.OnClickListener(){
             @Override
-            public void onClick(View v){
-                if(!mCursor.moveToPrevious()) {
-                    mCursor.moveToLast();
+            public void onClick(View v) {
+                if (mTimer == null) {
+                    if (mCursor.moveToPrevious()) {
+                        m_iOffset--;
+                    } else {
+                        mCursor.moveToLast();
+                        m_iOffset = mCursor.getColumnCount() - 1;
+                    }
+                    getContentsInfo(m_iOffset);
                 }
             }
         });
 
         mNextButton.setOnClickListener(new View.OnClickListener(){
             @Override
-            public void onClick(View v){
-                if(!mCursor.moveToNext()) {
-                    mCursor.moveToFirst();
+            public void onClick(View v) {
+                if (mTimer == null) {
+                    if (mCursor.moveToNext()) {
+                        m_iOffset++;
+                    } else {
+                        mCursor.moveToFirst();
+                        m_iOffset = 0;
+                    }
+                    getContentsInfo(m_iOffset);
                 }
             }
         });
@@ -126,7 +172,7 @@ public class MainActivity extends AppCompatActivity {
         switch (requestCode) {
             case PERMISSIONS_REQUEST_CODE:
                 if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                    getContentsInfo();
+                    getContentsInfo(m_iOffset);
                 }
                 break;
             default:
@@ -134,7 +180,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private void getContentsInfo() {
+    private void getContentsInfo(int liOffset) {
 
         // 画像の情報を取得する
         mResolver = getContentResolver();
@@ -146,24 +192,19 @@ public class MainActivity extends AppCompatActivity {
                 null // ソート (null ソートなし)
         );
 
-        if (mCursor.moveToFirst()) {
-//            mColumnMaxNum = mCursor.getColumnCount();
+        if(liOffset == 0)
+        {
+            mCursor.moveToFirst();
+        }
+
+        if (mCursor.move(liOffset)) {
             int fieldIndex = mCursor.getColumnIndex(MediaStore.Images.Media._ID);
             Long id = mCursor.getLong(fieldIndex);
             Uri imageUri = ContentUris.withAppendedId(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, id);
 
             mImageVIew = (ImageView) findViewById(R.id.imageView);
             mImageVIew.setImageURI(imageUri);
-
-            mCursor.moveToNext();
-            int fieldIndex2 = mCursor.getColumnIndex(MediaStore.Images.Media._ID);
-            Long id2 = mCursor.getLong(fieldIndex2);
-
-            // おためし
-
-
         }
-//        cursor.close();
 
     }
 
